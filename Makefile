@@ -13,25 +13,31 @@ CFLAGS  = -ffreestanding \
           -O2 \
           -Iinclude
 
-# Linker flags for flat binary/custom entry execution
+# Linker flags and libraries
 LDFLAGS = -nostdlib \
-          -T linker.ld
+          -T linker.ld \
+          -L/usr/local/lib
+LDLIBS  = -leclib
 
-TARGET  = vga_driver.bin
-SRCS    = src/vga_driver.c
+TARGET  = drivers.bin
+
+# Automatically find all .c files in any subdirectory
+SRCS    = $(shell find . -name "*.c")
 OBJS    = $(SRCS:.c=.o)
 
 .PHONY: all clean
 
 all: $(TARGET)
 
+# Generic pattern rule to compile any .c file anywhere in the repo
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET): $(OBJS)
-	$(LD) $(LDFLAGS) -o vga_driver.elf $(OBJS)
-	$(OBJCOPY) -O binary vga_driver.elf $(TARGET)
+	$(LD) $(LDFLAGS) -o drivers.elf $(OBJS) $(LDLIBS)
+	@echo "Linking multi-driver bundle..."
+	$(OBJCOPY) -O binary drivers.elf $(TARGET)
 	@echo "Successfully built $(TARGET)"
 
 clean:
-	rm -f $(OBJS) vga_driver.elf $(TARGET)
+	rm -f $(OBJS) drivers.elf $(TARGET)

@@ -10,6 +10,19 @@
 static int cursor_x = 0;
 static int cursor_y = 0;
 
+#define SYS_ADDRESS_MAP 4
+
+static inline long sys_map_page(uint32_t vaddr, uint32_t paddr, uint32_t flags) {
+    long ret;
+    __asm__ volatile (
+        "syscall"
+        : "=a" (ret)                                      /* Return value in rax */
+        : "a" (SYS_ADDRESS_MAP),                          /* Syscall number in rax */
+          "D" (vaddr), "S" (paddr), "d" (flags)           /* arg1 in rdi, arg2 in rsi, arg3 in rdx */
+        : "rcx", "r11", "memory"                          /* Clobbered registers */
+    );
+    return ret;
+}
 static void vga_clear(void) {
     for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++) {
         VGA_BUFFER[i] = (0x0F << 8) | ' '; // White text on black background
@@ -69,11 +82,16 @@ void _start(void) {
     while (1) {
         if (ipc_receive_msg(&msg, 0) == 0) {
             // If message contains text to print, process it here
-            if (msg.length > 0) {
+            if (msg.size > 0) {
                 vga_print((char*)msg.data);
             }
         }
         // Yield CPU time slice if no messages are waiting
-        // thread_yield();
-    }
+		__asm__ volatile (
+       		"syscall"
+       		 : 
+       		 : "a"(3)
+       		 : "rcx", "r11", "memory"
+   		);
+	}
 }
