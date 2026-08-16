@@ -1,7 +1,7 @@
 # Compiler and Toolchain Configuration
-CC      = gcc
-LD      = ld
-OBJCOPY = objcopy
+CC      = x86_64-elf-gcc
+LD      = x86_64-elf-ld
+OBJCOPY = x86_64-elf-objcopy
 
 # Freestanding flags tailored for low-level OS development
 CFLAGS  = -ffreestanding \
@@ -11,12 +11,13 @@ CFLAGS  = -ffreestanding \
           -Wall \
           -Wextra \
           -O2 \
-          -Iinclude
-
+          -Iinclude \
+		  -I$(HOME)/.local/eclib/include \
+			-g
 # Linker flags and libraries
 LDFLAGS = -nostdlib \
           -T linker.ld \
-          -L/usr/local/lib
+          -L$(HOME)/.local/eclib/lib
 LDLIBS  = -leclib
 
 TARGET  = drivers.bin

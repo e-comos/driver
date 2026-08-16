@@ -1,37 +1,59 @@
+/*
+ * E-comOS VGA Display Service
+ * A simple text-mode VGA driver for the E-comOS microkernel.
+ * It registers itself with the init-service and handles display requests via IPC.
+ */
 #include <stdint.h>
 #include <slfd.h>
+#include <syscall.h>
 
+/* Service identifier for the VGA display */
 #define SERVICE_VGA_DISPLAY 2
+
+/* VGA text-mode video memory (physical address 0xB8000) */
 #define VGA_BUFFER          ((volatile uint16_t*)0xB8000)
 #define VGA_WIDTH           80
 #define VGA_HEIGHT          25
 
-// Simple cursor tracking
+/* Stack size for the driver (16 KB) */
+#define DRIVER_STACK_SIZE   0x4000
+
+/* Cursor position tracking */
 static int cursor_x = 0;
 static int cursor_y = 0;
 
+/* Dedicated stack for the driver, placed in .bss */
+static uint8_t driver_stack[DRIVER_STACK_SIZE] __attribute__((aligned(16))) __attribute__((section(".bss")));
+
+/* System call number for address mapping */
 #define SYS_ADDRESS_MAP 4
 
+/*
+ * sys_map_page - Map a physical page to a virtual address (syscall wrapper)
+ */
 static inline long sys_map_page(uint32_t vaddr, uint32_t paddr, uint32_t flags) {
     long ret;
     __asm__ volatile (
         "syscall"
-        : "=a" (ret)                                      /* Return value in rax */
-        : "a" (SYS_ADDRESS_MAP),                          /* Syscall number in rax */
-          "D" (vaddr), "S" (paddr), "d" (flags)           /* arg1 in rdi, arg2 in rsi, arg3 in rdx */
-        : "rcx", "r11", "memory"                          /* Clobbered registers */
+        : "=a" (ret)
+        : "a" (SYS_ADDRESS_MAP),
+          "D" (vaddr), "S" (paddr), "d" (flags)
+        : "rcx", "r11", "memory"
     );
     return ret;
 }
-static void vga_clear(void) {
+
+/* Clear the entire VGA screen */
+void vga_clear(void) {
     for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++) {
-        VGA_BUFFER[i] = (0x0F << 8) | ' '; // White text on black background
+        VGA_BUFFER[i] = (0x0F << 8) | ' ';  // White on black
     }
     cursor_x = 0;
     cursor_y = 0;
 }
 
-static void vga_putchar(char c) {
+/* Write a single character to the VGA buffer, handling newlines and scrolling */
+void vga_putchar(char c) {
     if (c == '\n') {
         cursor_x = 0;
         cursor_y++;
@@ -47,51 +69,67 @@ static void vga_putchar(char c) {
     }
 
     if (cursor_y >= VGA_HEIGHT) {
-        // Simple scroll up could go here
+        /* Simple scroll-up could be implemented here */
         cursor_y = VGA_HEIGHT - 1;
     }
 }
 
-static void vga_print(const char* str) {
+/* Print a null-terminated string to the VGA screen */
+void vga_print(const char* str) {
     while (*str) {
         vga_putchar(*str++);
     }
 }
 
-__attribute__((section(".text.entry")))
-void _start(void) {
-    // 1. Register with init.bin as the VGA display service
-    // Message format matching your microkernel service protocol
+/*
+ * _start_c - The actual driver entry point after the stack has been switched.
+ * It registers with init-service, clears the screen, and enters the main IPC loop.
+ */
+void _start_c(void) {
+    /* Prepare a service registration message */
     char reg_payload[32];
     *((uint32_t*)reg_payload) = SERVICE_VGA_DISPLAY;
-    // Copy name after ID
+
+    /* Copy the service name after the ID */
     char* name_dest = reg_payload + sizeof(uint32_t);
     const char* name_src = "vga_display";
     int i = 0;
-    while (name_src[i]) { name_dest[i] = name_src[i]; i++; }
+    while (name_src[i]) {
+        name_dest[i] = name_src[i];
+        i++;
+    }
     name_dest[i] = '\0';
 
-    // Send register message to init (PID 1 or service manager)
-    ipc_send_msg(1, 1 /* MSG_SERVICE_REGISTER */, 0, sizeof(uint32_t) + i + 1, reg_payload);
+    /* Send registration message to init-service (PID 1) */
+    ipc_send_msg(1, 0, 1, sizeof(uint32_t) + i + 1, reg_payload);
 
+    /* Initialise the display */
     vga_clear();
     vga_print("E-comOS VGA Display Service Initialized.\n");
 
-    // 2. Main IPC service loop
+    /* Main IPC service loop */
     ipc_message_t msg;
     while (1) {
-        if (ipc_receive_msg(&msg, 0) == 0) {
-            // If message contains text to print, process it here
+        if (ipc_receive_msg(&msg, -1) == 0) {
             if (msg.size > 0) {
                 vga_print((char*)msg.data);
             }
         }
-        // Yield CPU time slice if no messages are waiting
-		__asm__ volatile (
-       		"syscall"
-       		 : 
-       		 : "a"(3)
-       		 : "rcx", "r11", "memory"
-   		);
-	}
+    }
+}
+
+/*
+ * _start - The boot entry point.
+ * It switches to a larger stack and then calls _start_c.
+ * This function is "naked" to avoid compiler-generated prologue/epilogue.
+ */
+__attribute__((section(".text.entry"), naked))
+void _start(void) {
+    __asm__ volatile(
+        "mov %0, %%rsp\n\t"
+        "call _start_c\n\t"
+        :
+        : "r"(driver_stack + DRIVER_STACK_SIZE)
+        : "memory"
+    );
 }
