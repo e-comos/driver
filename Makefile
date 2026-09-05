@@ -5,15 +5,15 @@ OBJCOPY = x86_64-elf-objcopy
 
 # Freestanding flags tailored for low-level OS development
 CFLAGS  = -ffreestanding \
-          -fno-pie \
-          -fno-stack-protector \
-          -mno-red-zone \
-          -Wall \
-          -Wextra \
-          -O2 \
-          -Iinclude \
-		  -I$(HOME)/.local/eclib/include \
-			-g
+        -fno-pie \
+        -fno-stack-protector \
+        -mno-red-zone \
+        -Wall \
+        -Wextra \
+        -O2 \
+        -Iinclude \
+	-I$(HOME)/.local/eclib/include \
+	-g
 # Linker flags and libraries
 LDFLAGS = -nostdlib \
           -T linker.ld \
