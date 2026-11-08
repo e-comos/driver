@@ -17,13 +17,9 @@ SECTIONS
         *(.rodata*)
     }
 
-    /* Initialized read-write data */
+    /* Include zero-initialized globals in the flat image loaded by init. */
     .data : ALIGN(4K) {
         *(.data*)
-    }
-
-    /* Uninitialized data (zeroed out by the kernel or loader) */
-    .bss : ALIGN(4K) {
         *(COMMON)
         *(.bss*)
     }

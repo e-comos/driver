@@ -1,7 +1,10 @@
 # Compiler and Toolchain Configuration
-CC      = x86_64-elf-gcc
-LD      = x86_64-elf-ld
-OBJCOPY = x86_64-elf-objcopy
+CC      = gcc
+LD      = ld
+OBJCOPY = objcopy
+
+TARGET  = drivers.bin
+OBJS    = vga/eightvga.o
 
 # Freestanding flags tailored for low-level OS development
 CFLAGS  = -ffreestanding \
@@ -12,33 +15,30 @@ CFLAGS  = -ffreestanding \
         -Wextra \
         -O2 \
         -Iinclude \
-	-I$(HOME)/.local/eclib/include \
-	-g
+        -I$(HOME)/.local/include \
+        -g
+
 # Linker flags and libraries
 LDFLAGS = -nostdlib \
           -T linker.ld \
-          -L$(HOME)/.local/eclib/lib
+          -L$(HOME)/.local/lib
 LDLIBS  = -leclib
-
-TARGET  = drivers.bin
-
-# Automatically find all .c files in any subdirectory
-SRCS    = $(shell find . -name "*.c")
-OBJS    = $(SRCS:.c=.o)
 
 .PHONY: all clean
 
 all: $(TARGET)
 
-# Generic pattern rule to compile any .c file anywhere in the repo
-%.o: %.c
+vga/eightvga.o: vga/eightvga.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TARGET): $(OBJS)
-	$(LD) $(LDFLAGS) -o drivers.elf $(OBJS) $(LDLIBS)
-	@echo "Linking multi-driver bundle..."
+$(TARGET): drivers.elf
 	$(OBJCOPY) -O binary drivers.elf $(TARGET)
 	@echo "Successfully built $(TARGET)"
+
+drivers.elf: $(OBJS)
+	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
+	@echo "Linking multi-driver bundle..."
 
 clean:
 	rm -f $(OBJS) drivers.elf $(TARGET)

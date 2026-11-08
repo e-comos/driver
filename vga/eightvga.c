@@ -10,20 +10,28 @@
 /* Service identifier for the VGA display */
 #define SERVICE_VGA_DISPLAY 2
 
-/* VGA text-mode video memory (physical address 0xB8000) */
-#define VGA_BUFFER          ((volatile uint16_t*)0xB8000)
+/* VGA memory is mapped into an allowed userspace virtual address. */
+#define VGA_PHYSICAL_BASE   0xB8000
+#define VGA_VIRTUAL_BASE    0x8B8000
+#define VGA_BUFFER          ((volatile uint16_t*)VGA_VIRTUAL_BASE)
 #define VGA_WIDTH           80
 #define VGA_HEIGHT          25
+#define MSG_VGA_WRITE       1
+#define MSG_VGA_CLEAR       2
+#define MSG_VGA_WRITE_CELLS 3
+#define MSG_VGA_READY       4
+#define MSG_VGA_FAILED      5
+#define USER_PAGE_RW_FLAGS  0x7
 
 /* Stack size for the driver (16 KB) */
 #define DRIVER_STACK_SIZE   0x4000
 
 /* Cursor position tracking */
-static int cursor_x = 0;
-static int cursor_y = 0;
+static int cursor_x __attribute__((section(".data"))) = 0;
+static int cursor_y __attribute__((section(".data"))) = 0;
 
-/* Dedicated stack for the driver, placed in .bss */
-static uint8_t driver_stack[DRIVER_STACK_SIZE] __attribute__((aligned(16))) __attribute__((section(".bss")));
+/* Keep the stack in the flat image because the loader does not load ELF BSS. */
+static uint8_t driver_stack[DRIVER_STACK_SIZE] __attribute__((aligned(16))) __attribute__((section(".data"))) = {0};
 
 /* System call number for address mapping */
 #define SYS_ADDRESS_MAP 4
@@ -36,7 +44,7 @@ static inline long sys_map_page(uint32_t vaddr, uint32_t paddr, uint32_t flags) 
     __asm__ volatile (
         "syscall"
         : "=a" (ret)
-        : "a" (SYS_ADDRESS_MAP),
+        : "0" ((long)SYS_ADDRESS_MAP),
           "D" (vaddr), "S" (paddr), "d" (flags)
         : "rcx", "r11", "memory"
     );
@@ -81,11 +89,41 @@ void vga_print(const char* str) {
     }
 }
 
+static void vga_write_cells(const ipc_message_t* msg) {
+    if (msg->size < 4 || ((msg->size - 4) % sizeof(uint16_t)) != 0)
+        return;
+
+    const uint16_t* payload = (const uint16_t*)msg->data;
+    uint16_t x = payload[0];
+    uint16_t y = payload[1];
+    uint32_t count = (msg->size - 4) / sizeof(uint16_t);
+    if (x >= VGA_WIDTH || y >= VGA_HEIGHT)
+        return;
+    uint32_t available = (uint32_t)VGA_WIDTH - x;
+    if (count > available)
+        count = available;
+
+    uint32_t row = (uint32_t)y * VGA_WIDTH;
+    for (uint32_t i = 0; i < count; i++)
+        VGA_BUFFER[row + x + i] = payload[i + 2];
+}
+
+static void vga_write_message(const ipc_message_t* msg) {
+    for (uint32_t i = 0; i < msg->size; i++)
+        vga_putchar((char)msg->data[i]);
+}
+
 /*
  * _start_c - The actual driver entry point after the stack has been switched.
  * It registers with init-service, clears the screen, and enters the main IPC loop.
  */
 void _start_c(void) {
+    if (sys_map_page(VGA_VIRTUAL_BASE, VGA_PHYSICAL_BASE,
+                     USER_PAGE_RW_FLAGS) != 0) {
+        ipc_send_msg(MSG_VGA_FAILED, 0, 1, 0, 0);
+        for (;;);
+    }
+
     /* Prepare a service registration message */
     char reg_payload[32];
     *((uint32_t*)reg_payload) = SERVICE_VGA_DISPLAY;
@@ -106,13 +144,26 @@ void _start_c(void) {
     /* Initialise the display */
     vga_clear();
     vga_print("E-comOS VGA Display Service Initialized.\n");
+    ipc_send_msg(MSG_VGA_READY, 0, 1, 0, 0);
 
     /* Main IPC service loop */
     ipc_message_t msg;
     while (1) {
         if (ipc_receive_msg(&msg, -1) == 0) {
-            if (msg.size > 0) {
-                vga_print((char*)msg.data);
+            if (msg.size <= sizeof(msg.data)) {
+                switch (msg.type) {
+                    case MSG_VGA_WRITE:
+                        vga_write_message(&msg);
+                        break;
+                    case MSG_VGA_CLEAR:
+                        vga_clear();
+                        break;
+                    case MSG_VGA_WRITE_CELLS:
+                        vga_write_cells(&msg);
+                        break;
+                    default:
+                        break;
+                }
             }
         }
     }
