@@ -1,10 +1,10 @@
 # Compiler and Toolchain Configuration
-CC      = gcc
-LD      = ld
-OBJCOPY = objcopy
+CC      = x86_64-elf-gcc
+LD      = x86_64-elf-ld
+OBJCOPY = x86_64-elf-objcopy
 
 TARGET  = drivers.bin
-OBJS    = vga/eightvga.o
+OBJS    = eightvga.o
 
 # Freestanding flags tailored for low-level OS development
 CFLAGS  = -ffreestanding \
@@ -28,7 +28,7 @@ LDLIBS  = -leclib
 
 all: $(TARGET)
 
-vga/eightvga.o: vga/eightvga.c
+eightvga.o: eightvga.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 

@@ -51,6 +51,25 @@ static inline long sys_map_page(uint32_t vaddr, uint32_t paddr, uint32_t flags) 
     return ret;
 }
 
+
+/* VGA CRTC ports: the TSS I/O bitmap grants these two to this process only. */
+#define VGA_CRTC_INDEX 0x3D4
+#define VGA_CRTC_DATA  0x3D5
+
+static inline void vga_outb(uint16_t port, uint8_t val) {
+    __asm__ volatile("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+
+/* Move the hardware text cursor to the tracked position so it follows
+ * whatever the shell is echoing. */
+static void vga_update_cursor(void) {
+    uint16_t pos = (uint16_t)(cursor_y * VGA_WIDTH + cursor_x);
+    vga_outb(VGA_CRTC_INDEX, 0x0F);
+    vga_outb(VGA_CRTC_DATA, (uint8_t)(pos & 0xFF));
+    vga_outb(VGA_CRTC_INDEX, 0x0E);
+    vga_outb(VGA_CRTC_DATA, (uint8_t)((pos >> 8) & 0xFF));
+}
+
 /* Clear the entire VGA screen */
 void vga_clear(void) {
     for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++) {
@@ -58,6 +77,7 @@ void vga_clear(void) {
     }
     cursor_x = 0;
     cursor_y = 0;
+    vga_update_cursor();
 }
 
 /* Write a single character to the VGA buffer, handling newlines and scrolling */
@@ -80,6 +100,8 @@ void vga_putchar(char c) {
         /* Simple scroll-up could be implemented here */
         cursor_y = VGA_HEIGHT - 1;
     }
+
+    vga_update_cursor();
 }
 
 /* Print a null-terminated string to the VGA screen */
